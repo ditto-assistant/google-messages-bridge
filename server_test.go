@@ -48,7 +48,7 @@ func (*fakeSession) Close() {}
 func TestHealthAndAuthentication(t *testing.T) {
 	server := testServer(t)
 	health := httptest.NewRecorder()
-	server.handler().ServeHTTP(health, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	server.handler().ServeHTTP(health, httptest.NewRequest(http.MethodGet, "/health", nil))
 	if health.Code != http.StatusOK {
 		t.Fatalf("health status = %d", health.Code)
 	}

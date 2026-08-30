@@ -17,7 +17,7 @@ Google Messages web protocol both require a live, stateful connection.
 - `PORT` (optional): HTTP port, default `8080`.
 - `LOG_LEVEL` (optional): `debug`, `info`, `warn`, or `error`; default `info`.
 
-`GET /healthz` is unauthenticated and contains no account data. The three
+`GET /health` is unauthenticated and contains no account data. The three
 authenticated endpoints are `POST /v1/connect`, `POST /v1/sync`, and
 `POST /v1/send`; their wire format is documented in Ditto backend's
 `docs/google-messages-bridge-api.md`.

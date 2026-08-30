@@ -73,9 +73,11 @@ func newServer(token string, proto protocol, logger zerolog.Logger) (*server, er
 
 func (s *server) handler() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
+	health := func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
-	})
+	}
+	mux.HandleFunc("GET /health", health)
+	mux.HandleFunc("GET /healthz", health)
 	mux.Handle("POST /v1/connect", s.authenticate(http.HandlerFunc(s.handleConnect)))
 	mux.Handle("POST /v1/sync", s.authenticate(http.HandlerFunc(s.handleSync)))
 	mux.Handle("POST /v1/send", s.authenticate(http.HandlerFunc(s.handleSend)))

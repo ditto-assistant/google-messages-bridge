@@ -1,0 +1,8 @@
+Ditto Google Messages Bridge
+
+This service uses libgm from mautrix-gmessages, copyright Tulir Asokan and
+the mautrix contributors: https://github.com/mautrix/gmessages
+
+The service and libgm are distributed under the GNU Affero General Public
+License, version 3 or later. Source is available at
+https://github.com/ditto-assistant/google-messages-bridge.

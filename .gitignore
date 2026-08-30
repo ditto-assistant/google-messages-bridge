@@ -1,0 +1,6 @@
+/google-messages-bridge
+/.env
+/.idea/
+/.vscode/
+*.test
+*.out

@@ -4,7 +4,10 @@ An independent AGPL-3.0 service that adapts
 [`mautrix/gmessages`' libgm](https://github.com/mautrix/gmessages) to Ditto's
 small HTTPS connector contract. It pairs a Google Messages web session with an
 Android phone, reads SMS/RCS history, keeps an incremental cursor, and sends
-text messages through the paired phone.
+text messages through the paired phone. New connections use Google Messages'
+linked-device QR flow, so users never need to copy Google session cookies into
+Ditto. The older Google-account/cookie flow remains available only as a
+compatibility fallback for deployments where QR pairing is unavailable.
 
 The service is separate from Ditto's private backend because libgm is
 AGPL-3.0. It runs as one always-on instance: pairing and the unofficial
@@ -45,3 +48,7 @@ store `BRIDGE_TOKEN` in a managed secret store.
 
 Google Messages web is an unofficial protocol. Pairing can expire, the Android
 phone must remain online, and Google can change or revoke the flow at any time.
+Google has removed QR pairing for some accounts and regions; those users cannot
+use the QR-first Ditto flow until a secure first-party Google-account handoff is
+available. A normal Google OAuth token does not grant access to personal
+Messages/RCS, so the bridge does not present OAuth as if it did.

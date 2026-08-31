@@ -108,18 +108,35 @@ func (s *server) handleConnect(w http.ResponseWriter, r *http.Request) {
 		s.pollPairing(w, flowID)
 		return
 	}
+	method := pairingMethodQR
+	cookies := map[string]string(nil)
 	cookieJSON := stringCredential(request.Credentials, "cookies")
-	cookies, err := parseCookies(cookieJSON)
-	if err != nil {
-		writeClientError(w, http.StatusBadRequest, err)
+	if cookieJSON != "" {
+		method = pairingMethodGoogle
+		var err error
+		cookies, err = parseCookies(cookieJSON)
+		if err != nil {
+			writeClientError(w, http.StatusBadRequest, err)
+			return
+		}
+	}
+	if requested := stringCredential(request.Credentials, "method"); requested != "" {
+		method = pairingMethod(requested)
+	}
+	if method != pairingMethodQR && method != pairingMethodGoogle {
+		writeClientError(w, http.StatusBadRequest, errors.New("method must be qr or google"))
+		return
+	}
+	if method == pairingMethodGoogle && len(cookies) == 0 {
+		writeClientError(w, http.StatusBadRequest, errors.New("Google-account pairing requires cookies"))
 		return
 	}
 	pairCtx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
 	defer cancel()
-	pair, err := s.protocol.StartPairing(pairCtx, cookies)
+	pair, err := s.protocol.StartPairing(pairCtx, method, cookies)
 	if err != nil {
 		s.logger.Warn().Err(err).Msg("failed to start Google Messages pairing")
-		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "could not start pairing; verify the cookie JSON and try again"})
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "could not start pairing; check Google Messages on the Android phone and try again"})
 		return
 	}
 	flowID := uuid.NewString()
@@ -134,7 +151,7 @@ func (s *server) handleConnect(w http.ResponseWriter, r *http.Request) {
 		flow.result <- pairResult{session: session, displayName: displayName, err: waitErr}
 		close(flow.result)
 	}()
-	s.writePairingChallenge(w, flowID, pair.Emoji())
+	s.writePairingChallenge(w, flowID, pair.Challenge())
 }
 
 func (s *server) pollPairing(w http.ResponseWriter, flowID string) {
@@ -161,13 +178,13 @@ func (s *server) pollPairing(w http.ResponseWriter, flowID string) {
 			"displayName": result.displayName,
 		})
 	default:
-		s.writePairingChallenge(w, flowID, flow.pairing.Emoji())
+		s.writePairingChallenge(w, flowID, flow.pairing.Challenge())
 	}
 }
 
-func (s *server) writePairingChallenge(w http.ResponseWriter, flowID, emoji string) {
+func (s *server) writePairingChallenge(w http.ResponseWriter, flowID string, challenge pairingChallenge) {
 	writeJSON(w, http.StatusOK, map[string]any{"challenge": map[string]any{
-		"field": "poll", "kind": "emoji", "prompt": emoji,
+		"field": "poll", "kind": challenge.Kind, "prompt": challenge.Prompt,
 		"state": map[string]string{"flowID": flowID},
 	}})
 }

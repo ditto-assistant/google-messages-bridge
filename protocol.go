@@ -200,6 +200,46 @@ type libGMSession struct {
 	once   sync.Once
 }
 
+type gmSessionClient interface {
+	SetEventHandler(libgm.EventHandler)
+	Connect() error
+}
+
+func connectAndWaitForSession(ctx context.Context, client gmSessionClient, timeout time.Duration) error {
+	ready := make(chan struct{})
+	fatal := make(chan error, 1)
+	var readyOnce sync.Once
+	client.SetEventHandler(func(event any) {
+		switch value := event.(type) {
+		case *events.ClientReady, *events.ListenRecovered:
+			// libgm v0.2608.0 declares ClientReady but does not emit it. Its
+			// first successful long poll emits ListenRecovered, including when
+			// there was no preceding transport error.
+			readyOnce.Do(func() { close(ready) })
+		case *events.ListenFatalError:
+			select {
+			case fatal <- value.Error:
+			default:
+			}
+		}
+	})
+	if err := client.Connect(); err != nil {
+		return fmt.Errorf("connect session: %w", err)
+	}
+	wait := time.NewTimer(timeout)
+	defer wait.Stop()
+	select {
+	case <-ready:
+		return nil
+	case err := <-fatal:
+		return fmt.Errorf("session listener failed: %w", err)
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-wait.C:
+		return errors.New("timed out waiting for the Android phone")
+	}
+}
+
 func (p *libGMProtocol) OpenSession(ctx context.Context, opaque string) (bridgeSession, error) {
 	if len(opaque) > maxOpaqueSessionBytes*2 {
 		return nil, errors.New("session is too large")
@@ -217,40 +257,9 @@ func (p *libGMProtocol) OpenSession(ctx context.Context, opaque string) (bridgeS
 	}
 
 	client := libgm.NewClient(auth, nil, p.logger)
-	ready := make(chan struct{})
-	var readyOnce sync.Once
-	var fatalMu sync.Mutex
-	var fatalErr error
-	client.SetEventHandler(func(event any) {
-		switch value := event.(type) {
-		case *events.ClientReady:
-			readyOnce.Do(func() { close(ready) })
-		case *events.ListenFatalError:
-			fatalMu.Lock()
-			fatalErr = value.Error
-			fatalMu.Unlock()
-		}
-	})
-	if err := client.Connect(); err != nil {
+	if err := connectAndWaitForSession(ctx, client, 30*time.Second); err != nil {
 		client.Disconnect()
-		return nil, fmt.Errorf("connect session: %w", err)
-	}
-	wait := time.NewTimer(30 * time.Second)
-	defer wait.Stop()
-	select {
-	case <-ready:
-	case <-ctx.Done():
-		client.Disconnect()
-		return nil, ctx.Err()
-	case <-wait.C:
-		fatalMu.Lock()
-		err := fatalErr
-		fatalMu.Unlock()
-		client.Disconnect()
-		if err != nil {
-			return nil, fmt.Errorf("session listener failed: %w", err)
-		}
-		return nil, errors.New("timed out waiting for the Android phone")
+		return nil, err
 	}
 	return &libGMSession{client: client, logger: p.logger}, nil
 }

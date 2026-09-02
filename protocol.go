@@ -302,6 +302,12 @@ func (s *libGMSession) Sync(ctx context.Context, cursor syncCursor, since *time.
 			HighWaterMicros: nowMicros, ConversationIDs: ids,
 		}
 	}
+	s.logger.Info().
+		Int("listed_conversations", len(conversations)).
+		Int("catalog_threads", len(threads)).
+		Int("cursor_conversations", len(cursor.ConversationIDs)).
+		Str("cursor_phase", cursor.Phase).
+		Msg("prepared Google Messages sync catalog")
 
 	messages := make([]rawMessage, 0, limit)
 	seen := make(map[string]struct{}, limit)

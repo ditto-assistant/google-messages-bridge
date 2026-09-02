@@ -26,8 +26,20 @@ type rawMessage struct {
 	IsFromSelf  bool         `json:"isFromSelf"`
 }
 
+type pairingMethod string
+
+const (
+	pairingMethodQR     pairingMethod = "qr"
+	pairingMethodGoogle pairingMethod = "google"
+)
+
+type pairingChallenge struct {
+	Kind   string
+	Prompt string
+}
+
 type pairing interface {
-	Emoji() string
+	Challenge() pairingChallenge
 	Wait(context.Context) (session, displayName string, err error)
 	Close()
 }
@@ -39,6 +51,6 @@ type bridgeSession interface {
 }
 
 type protocol interface {
-	StartPairing(context.Context, map[string]string) (pairing, error)
+	StartPairing(context.Context, pairingMethod, map[string]string) (pairing, error)
 	OpenSession(context.Context, string) (bridgeSession, error)
 }

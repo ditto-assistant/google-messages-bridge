@@ -44,7 +44,27 @@ type libGMPairing struct {
 	once    sync.Once
 }
 
-func (p *libGMProtocol) StartPairing(ctx context.Context, cookies map[string]string) (pairing, error) {
+type libGMQRPairing struct {
+	client      *libgm.Client
+	auth        *libgm.AuthData
+	pairSuccess chan *gmproto.PairedData
+	qrMu        sync.RWMutex
+	qr          string
+	once        sync.Once
+}
+
+func (p *libGMProtocol) StartPairing(ctx context.Context, method pairingMethod, cookies map[string]string) (pairing, error) {
+	switch method {
+	case pairingMethodQR:
+		return p.startQRPairing(ctx)
+	case pairingMethodGoogle:
+		return p.startGooglePairing(ctx, cookies)
+	default:
+		return nil, fmt.Errorf("unsupported pairing method %q", method)
+	}
+}
+
+func (p *libGMProtocol) startGooglePairing(ctx context.Context, cookies map[string]string) (pairing, error) {
 	auth := libgm.NewAuthData()
 	auth.SetCookies(cloneCookies(cookies))
 	client := libgm.NewClient(auth, nil, p.logger)
@@ -60,20 +80,104 @@ func (p *libGMProtocol) StartPairing(ctx context.Context, cookies map[string]str
 	return &libGMPairing{client: client, auth: auth, session: session, emoji: emoji}, nil
 }
 
-func (p *libGMPairing) Emoji() string { return p.emoji }
+func (p *libGMProtocol) startQRPairing(ctx context.Context) (pairing, error) {
+	auth := libgm.NewAuthData()
+	client := libgm.NewClient(auth, nil, p.logger)
+	pairSuccess := make(chan *gmproto.PairedData, 1)
+	callback := func(data *gmproto.PairedData) {
+		select {
+		case pairSuccess <- data:
+		default:
+		}
+	}
+	client.PairCallback.Store(&callback)
+	if err := client.FetchConfig(ctx); err != nil {
+		client.Disconnect()
+		return nil, fmt.Errorf("fetch Messages configuration: %w", err)
+	}
+	qr, err := client.StartLogin()
+	if err != nil {
+		client.Disconnect()
+		return nil, fmt.Errorf("start QR pairing: %w", err)
+	}
+	return &libGMQRPairing{
+		client: client, auth: auth, pairSuccess: pairSuccess, qr: qr,
+	}, nil
+}
+
+func (p *libGMPairing) Challenge() pairingChallenge {
+	return pairingChallenge{Kind: "emoji", Prompt: p.emoji}
+}
+
+func (p *libGMQRPairing) Challenge() pairingChallenge {
+	p.qrMu.RLock()
+	defer p.qrMu.RUnlock()
+	return pairingChallenge{Kind: "qr", Prompt: p.qr}
+}
 
 func (p *libGMPairing) Wait(ctx context.Context) (string, string, error) {
 	phoneID, err := p.client.FinishGaiaPairing(ctx, p.session)
 	if err != nil {
 		return "", "", err
 	}
-	raw, err := json.Marshal(p.auth)
-	if err != nil {
-		return "", "", fmt.Errorf("serialize paired session: %w", err)
-	}
 	displayName := strings.TrimSpace(phoneID)
 	if sourceID := strings.TrimSpace(p.auth.Mobile.GetSourceID()); sourceID != "" {
 		displayName = sourceID
+	}
+	return serializeAuthData(p.auth, displayName)
+}
+
+const (
+	qrRefreshInterval   = 30 * time.Second
+	qrMaxAttempts       = 6
+	qrPairingSettleTime = 2 * time.Second
+)
+
+func (p *libGMQRPairing) Wait(ctx context.Context) (string, string, error) {
+	refresh := time.NewTimer(qrRefreshInterval)
+	defer refresh.Stop()
+	attemptsRemaining := qrMaxAttempts
+	for {
+		select {
+		case data := <-p.pairSuccess:
+			// Google Messages needs a moment to persist the linked device before
+			// the bridge disconnects and opens the new session.
+			settle := time.NewTimer(qrPairingSettleTime)
+			select {
+			case <-settle.C:
+			case <-ctx.Done():
+				settle.Stop()
+				return "", "", ctx.Err()
+			}
+			displayName := strings.TrimSpace(data.GetMobile().GetSourceID())
+			return serializeAuthData(p.auth, displayName)
+		case <-refresh.C:
+			attemptsRemaining--
+			if attemptsRemaining <= 0 {
+				return "", "", errors.New("QR pairing expired")
+			}
+			qr, err := p.client.RefreshPhoneRelay()
+			if err != nil {
+				return "", "", fmt.Errorf("refresh QR pairing: %w", err)
+			}
+			p.qrMu.Lock()
+			p.qr = qr
+			p.qrMu.Unlock()
+			refresh.Reset(qrRefreshInterval)
+		case <-ctx.Done():
+			return "", "", ctx.Err()
+		}
+	}
+}
+
+func serializeAuthData(auth *libgm.AuthData, displayName string) (string, string, error) {
+	raw, err := json.Marshal(auth)
+	if err != nil {
+		return "", "", fmt.Errorf("serialize paired session: %w", err)
+	}
+	displayName = strings.TrimSpace(displayName)
+	if displayName == "" && auth.Mobile != nil {
+		displayName = strings.TrimSpace(auth.Mobile.GetSourceID())
 	}
 	if displayName == "" {
 		displayName = "Android phone"
@@ -82,6 +186,10 @@ func (p *libGMPairing) Wait(ctx context.Context) (string, string, error) {
 }
 
 func (p *libGMPairing) Close() {
+	p.once.Do(func() { p.client.Disconnect() })
+}
+
+func (p *libGMQRPairing) Close() {
 	p.once.Do(func() { p.client.Disconnect() })
 }
 

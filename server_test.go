@@ -15,11 +15,15 @@ import (
 const testToken = "0123456789abcdef0123456789abcdef"
 
 type fakeProtocol struct {
-	pair    pairing
-	session bridgeSession
+	pair        pairing
+	session     bridgeSession
+	lastMethod  pairingMethod
+	lastCookies map[string]string
 }
 
-func (p *fakeProtocol) StartPairing(context.Context, map[string]string) (pairing, error) {
+func (p *fakeProtocol) StartPairing(_ context.Context, method pairingMethod, cookies map[string]string) (pairing, error) {
+	p.lastMethod = method
+	p.lastCookies = cloneCookies(cookies)
 	return p.pair, nil
 }
 
@@ -27,9 +31,16 @@ func (p *fakeProtocol) OpenSession(context.Context, string) (bridgeSession, erro
 	return p.session, nil
 }
 
-type fakePairing struct{}
+type fakePairing struct {
+	challenge pairingChallenge
+}
 
-func (*fakePairing) Emoji() string { return "🐢" }
+func (p *fakePairing) Challenge() pairingChallenge {
+	if p.challenge.Kind == "" {
+		return pairingChallenge{Kind: "qr", Prompt: "qr-payload"}
+	}
+	return p.challenge
+}
 func (*fakePairing) Wait(context.Context) (string, string, error) {
 	return "paired-session", "Pixel", nil
 }
@@ -62,12 +73,13 @@ func TestHealthAndAuthentication(t *testing.T) {
 
 func TestPairSyncAndSend(t *testing.T) {
 	server := testServer(t)
-	initial := callJSON(t, server, "/v1/connect", map[string]any{"credentials": map[string]string{"cookies": `{"SAPISID":"secret"}`}})
+	initial := callJSON(t, server, "/v1/connect", map[string]any{"credentials": map[string]string{"start": "1"}})
 	if initial.Code != http.StatusOK {
 		t.Fatalf("initial pairing status = %d, body = %s", initial.Code, initial.Body.String())
 	}
 	var challenge struct {
 		Challenge struct {
+			Kind   string            `json:"kind"`
 			Prompt string            `json:"prompt"`
 			State  map[string]string `json:"state"`
 		} `json:"challenge"`
@@ -75,7 +87,7 @@ func TestPairSyncAndSend(t *testing.T) {
 	if err := json.Unmarshal(initial.Body.Bytes(), &challenge); err != nil {
 		t.Fatal(err)
 	}
-	if challenge.Challenge.Prompt != "🐢" || challenge.Challenge.State["flowID"] == "" {
+	if challenge.Challenge.Kind != "qr" || challenge.Challenge.Prompt != "qr-payload" || challenge.Challenge.State["flowID"] == "" {
 		t.Fatalf("challenge = %#v", challenge)
 	}
 
@@ -101,6 +113,36 @@ func TestPairSyncAndSend(t *testing.T) {
 	sendResponse := callJSON(t, server, "/v1/send", map[string]any{"credentials": map[string]string{"session": "paired-session"}, "threadId": "thread", "text": "on my way"})
 	if sendResponse.Code != http.StatusOK || !bytes.Contains(sendResponse.Body.Bytes(), []byte(`"isFromSelf":true`)) {
 		t.Fatalf("send status = %d, body = %s", sendResponse.Code, sendResponse.Body.String())
+	}
+}
+
+func TestGoogleAccountCookiePairingRemainsAvailable(t *testing.T) {
+	proto := &fakeProtocol{
+		pair:    &fakePairing{challenge: pairingChallenge{Kind: "emoji", Prompt: "🐢"}},
+		session: &fakeSession{},
+	}
+	server, err := newServer(testToken, proto, zerolog.Nop())
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := callJSON(t, server, "/v1/connect", map[string]any{
+		"credentials": map[string]string{"cookies": `{"SAPISID":"secret"}`},
+	})
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	if proto.lastMethod != pairingMethodGoogle || proto.lastCookies["SAPISID"] != "secret" {
+		t.Fatalf("method = %q, cookies = %#v", proto.lastMethod, proto.lastCookies)
+	}
+}
+
+func TestConnectRejectsUnknownPairingMethod(t *testing.T) {
+	server := testServer(t)
+	response := callJSON(t, server, "/v1/connect", map[string]any{
+		"credentials": map[string]string{"method": "oauth"},
+	})
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
 	}
 }
 

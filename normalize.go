@@ -8,15 +8,23 @@ import (
 )
 
 func normalizeConversation(conversation *gmproto.Conversation) (conversationThread, bool) {
-	if conversation == nil || strings.TrimSpace(conversation.GetConversationID()) == "" || conversation.GetLastMessageTimestamp() <= 0 {
+	if conversation == nil || strings.TrimSpace(conversation.GetConversationID()) == "" {
 		return conversationThread{}, false
+	}
+	lastMessageAt := time.Unix(0, 0).UTC()
+	timestamp := conversation.GetLastMessageTimestamp()
+	if timestamp <= 0 {
+		timestamp = conversation.GetUnknownTimestamp()
+	}
+	if timestamp > 0 {
+		lastMessageAt = time.UnixMicro(timestamp).UTC()
 	}
 	threadKind := "dm"
 	if conversation.GetIsGroupChat() {
 		threadKind = "group"
 	}
 	return conversationThread{
-		LastMessageAt: time.UnixMicro(conversation.GetLastMessageTimestamp()).UTC(),
+		LastMessageAt: lastMessageAt,
 		ThreadID:      conversation.GetConversationID(),
 		ThreadName:    threadName(conversation),
 		ThreadKind:    threadKind,

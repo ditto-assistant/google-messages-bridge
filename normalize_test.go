@@ -50,6 +50,19 @@ func TestNormalizeConversationCatalogRejectsMissingIdentity(t *testing.T) {
 	}
 }
 
+func TestNormalizeConversationCatalogKeepsThreadWithoutTimestamp(t *testing.T) {
+	thread, ok := normalizeConversation(&gmproto.Conversation{
+		ConversationID: "conversation-old",
+		Name:           "Archived friend",
+	})
+	if !ok {
+		t.Fatal("expected identified conversation without timestamp to be included")
+	}
+	if !thread.LastMessageAt.Equal(time.Unix(0, 0).UTC()) {
+		t.Fatalf("last message = %s, want epoch fallback", thread.LastMessageAt)
+	}
+}
+
 func TestNormalizeAttachmentOnlyMessage(t *testing.T) {
 	message := &gmproto.Message{
 		MessageID: "message-2", ConversationID: "thread-2", Timestamp: time.Now().UnixMicro(),

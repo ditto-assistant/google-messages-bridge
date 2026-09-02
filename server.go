@@ -233,7 +233,7 @@ func (s *server) handleSync(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "session could not connect; reconnect Google Messages"})
 		return
 	}
-	messages, next, err := bridge.Sync(r.Context(), cursor, since, limit)
+	messages, threads, next, err := bridge.Sync(r.Context(), cursor, since, limit)
 	if err != nil {
 		s.logger.Warn().Err(err).Msg("Google Messages sync failed")
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "sync failed; ensure the Android phone is online"})
@@ -245,7 +245,7 @@ func (s *server) handleSync(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "could not save sync position"})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"messages": messages, "nextCursor": nextValue})
+	writeJSON(w, http.StatusOK, map[string]any{"messages": messages, "threads": threads, "nextCursor": nextValue})
 }
 
 func (s *server) handleSend(w http.ResponseWriter, r *http.Request) {

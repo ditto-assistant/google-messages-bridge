@@ -7,6 +7,30 @@ import (
 	"go.mau.fi/mautrix-gmessages/pkg/libgm/gmproto"
 )
 
+func normalizeConversation(conversation *gmproto.Conversation) (conversationThread, bool) {
+	if conversation == nil || strings.TrimSpace(conversation.GetConversationID()) == "" {
+		return conversationThread{}, false
+	}
+	lastMessageAt := time.Unix(0, 0).UTC()
+	timestamp := conversation.GetLastMessageTimestamp()
+	if timestamp <= 0 {
+		timestamp = conversation.GetUnknownTimestamp()
+	}
+	if timestamp > 0 {
+		lastMessageAt = time.UnixMicro(timestamp).UTC()
+	}
+	threadKind := "dm"
+	if conversation.GetIsGroupChat() {
+		threadKind = "group"
+	}
+	return conversationThread{
+		LastMessageAt: lastMessageAt,
+		ThreadID:      conversation.GetConversationID(),
+		ThreadName:    threadName(conversation),
+		ThreadKind:    threadKind,
+	}, true
+}
+
 func normalizeMessage(message *gmproto.Message, conversation *gmproto.Conversation) (rawMessage, bool) {
 	if message == nil || strings.TrimSpace(message.GetMessageID()) == "" || strings.TrimSpace(message.GetConversationID()) == "" || message.GetTimestamp() <= 0 {
 		return rawMessage{}, false

@@ -26,6 +26,16 @@ type rawMessage struct {
 	IsFromSelf  bool         `json:"isFromSelf"`
 }
 
+// conversationThread is the lightweight conversation catalog returned beside
+// bounded history pages. Listing a thread must not depend on how much message
+// history happened to fit in the current sync batch.
+type conversationThread struct {
+	LastMessageAt time.Time `json:"lastMessageAt"`
+	ThreadID      string    `json:"threadId"`
+	ThreadName    string    `json:"threadName"`
+	ThreadKind    string    `json:"threadKind"`
+}
+
 type pairingMethod string
 
 const (
@@ -45,7 +55,7 @@ type pairing interface {
 }
 
 type bridgeSession interface {
-	Sync(context.Context, syncCursor, *time.Time, int) ([]rawMessage, syncCursor, error)
+	Sync(context.Context, syncCursor, *time.Time, int) ([]rawMessage, []conversationThread, syncCursor, error)
 	Send(context.Context, string, string) (rawMessage, error)
 	Close()
 }

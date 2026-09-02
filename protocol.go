@@ -268,13 +268,19 @@ func (s *libGMSession) Close() {
 	s.once.Do(func() { s.client.Disconnect() })
 }
 
-func (s *libGMSession) Sync(ctx context.Context, cursor syncCursor, since *time.Time, limit int) ([]rawMessage, syncCursor, error) {
+func (s *libGMSession) Sync(ctx context.Context, cursor syncCursor, since *time.Time, limit int) ([]rawMessage, []conversationThread, syncCursor, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	conversations, byID, err := s.listConversations(ctx)
 	if err != nil {
-		return nil, cursor, err
+		return nil, nil, cursor, err
+	}
+	threads := make([]conversationThread, 0, len(conversations))
+	for _, conversation := range conversations {
+		if thread, ok := normalizeConversation(conversation); ok {
+			threads = append(threads, thread)
+		}
 	}
 	nowMicros := time.Now().UTC().UnixMicro()
 	if cursor.Version == 0 || cursor.Phase == cursorPhaseLive {
@@ -308,12 +314,12 @@ func (s *libGMSession) Sync(ctx context.Context, cursor syncCursor, since *time.
 		}
 		messageCursor, err := decodeMessageCursor(cursor.MessageCursor)
 		if err != nil {
-			return nil, cursor, err
+			return nil, threads, cursor, err
 		}
 		count := int64(min(messagePageSize, limit-len(messages)))
 		response, err := s.client.FetchMessages(ctx, conversationID, count, messageCursor)
 		if err != nil {
-			return nil, cursor, fmt.Errorf("fetch messages for %s: %w", conversationID, err)
+			return nil, threads, cursor, fmt.Errorf("fetch messages for %s: %w", conversationID, err)
 		}
 		protocolCalls++
 		oldestReached := false
@@ -338,7 +344,7 @@ func (s *libGMSession) Sync(ctx context.Context, cursor syncCursor, since *time.
 
 		nextMessageCursor, hasMore, err := encodeMessageCursor(response.GetCursor())
 		if err != nil {
-			return nil, cursor, err
+			return nil, threads, cursor, err
 		}
 		if hasMore && !oldestReached {
 			cursor.MessageCursor = nextMessageCursor
@@ -360,7 +366,7 @@ func (s *libGMSession) Sync(ctx context.Context, cursor syncCursor, since *time.
 	if cursor.ConversationIndex >= len(cursor.ConversationIDs) {
 		cursor = syncCursor{Version: cursorVersion, Phase: cursorPhaseLive, AfterMicros: cursor.HighWaterMicros}
 	}
-	return messages, cursor, nil
+	return messages, threads, cursor, nil
 }
 
 func (s *libGMSession) listConversations(ctx context.Context) ([]*gmproto.Conversation, map[string]*gmproto.Conversation, error) {

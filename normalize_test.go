@@ -24,6 +24,32 @@ func TestNormalizeMessage(t *testing.T) {
 	}
 }
 
+func TestNormalizeConversationCatalogIncludesOldThreads(t *testing.T) {
+	conversation := &gmproto.Conversation{
+		ConversationID:       "conversation-1",
+		Name:                 "Family",
+		IsGroupChat:          true,
+		LastMessageTimestamp: time.Date(2024, time.January, 2, 3, 4, 5, 0, time.UTC).UnixMicro(),
+	}
+
+	thread, ok := normalizeConversation(conversation)
+	if !ok {
+		t.Fatal("expected conversation to be included")
+	}
+	if thread.ThreadID != "conversation-1" || thread.ThreadName != "Family" || thread.ThreadKind != "group" {
+		t.Fatalf("thread = %#v", thread)
+	}
+	if !thread.LastMessageAt.Equal(time.Date(2024, time.January, 2, 3, 4, 5, 0, time.UTC)) {
+		t.Fatalf("last message = %s", thread.LastMessageAt)
+	}
+}
+
+func TestNormalizeConversationCatalogRejectsMissingIdentity(t *testing.T) {
+	if _, ok := normalizeConversation(&gmproto.Conversation{}); ok {
+		t.Fatal("expected empty conversation to be rejected")
+	}
+}
+
 func TestNormalizeAttachmentOnlyMessage(t *testing.T) {
 	message := &gmproto.Message{
 		MessageID: "message-2", ConversationID: "thread-2", Timestamp: time.Now().UnixMicro(),

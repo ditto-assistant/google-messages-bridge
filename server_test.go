@@ -48,8 +48,8 @@ func (*fakePairing) Close() {}
 
 type fakeSession struct{}
 
-func (*fakeSession) Sync(_ context.Context, _ syncCursor, _ *time.Time, _ int) ([]rawMessage, syncCursor, error) {
-	return []rawMessage{{Timestamp: time.Unix(1, 0).UTC(), ThreadID: "thread", ThreadName: "Ada", ThreadKind: "dm", SenderID: "ada", SenderName: "Ada", Text: "hello", MessageID: "message"}}, syncCursor{Version: cursorVersion, Phase: cursorPhaseLive, AfterMicros: 1}, nil
+func (*fakeSession) Sync(_ context.Context, _ syncCursor, _ *time.Time, _ int) ([]rawMessage, []conversationThread, syncCursor, error) {
+	return []rawMessage{{Timestamp: time.Unix(1, 0).UTC(), ThreadID: "thread", ThreadName: "Ada", ThreadKind: "dm", SenderID: "ada", SenderName: "Ada", Text: "hello", MessageID: "message"}}, []conversationThread{{LastMessageAt: time.Unix(1, 0).UTC(), ThreadID: "thread", ThreadName: "Ada", ThreadKind: "dm"}}, syncCursor{Version: cursorVersion, Phase: cursorPhaseLive, AfterMicros: 1}, nil
 }
 func (*fakeSession) Send(_ context.Context, threadID, text string) (rawMessage, error) {
 	return rawMessage{Timestamp: time.Unix(2, 0).UTC(), ThreadID: threadID, ThreadName: "Ada", ThreadKind: "dm", SenderName: "You", Text: text, MessageID: "sent", IsFromSelf: true}, nil
@@ -106,7 +106,7 @@ func TestPairSyncAndSend(t *testing.T) {
 	}
 
 	syncResponse := callJSON(t, server, "/v1/sync", map[string]any{"credentials": map[string]string{"session": "paired-session"}, "limit": 10})
-	if syncResponse.Code != http.StatusOK || !bytes.Contains(syncResponse.Body.Bytes(), []byte(`"messageId":"message"`)) {
+	if syncResponse.Code != http.StatusOK || !bytes.Contains(syncResponse.Body.Bytes(), []byte(`"messageId":"message"`)) || !bytes.Contains(syncResponse.Body.Bytes(), []byte(`"threads":[`)) {
 		t.Fatalf("sync status = %d, body = %s", syncResponse.Code, syncResponse.Body.String())
 	}
 

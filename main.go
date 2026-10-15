@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -22,7 +23,7 @@ func main() {
 		port = "8080"
 	}
 	httpServer := &http.Server{
-		Addr:              ":" + port,
+		Addr:              net.JoinHostPort(strings.TrimSpace(os.Getenv("BIND_HOST")), port),
 		Handler:           bridge.handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       3 * time.Minute,

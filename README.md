@@ -18,6 +18,7 @@ Google Messages web protocol both require a live, stateful connection.
 - `BRIDGE_TOKEN` (required): at least 32 characters; every `/v1/*` request must
   use it as a bearer token.
 - `PORT` (optional): HTTP port, default `8080`.
+- `BIND_HOST` (optional): listen address, default all interfaces. Desktop launches use `127.0.0.1` to keep the local bridge off the network.
 - `LOG_LEVEL` (optional): `debug`, `info`, `warn`, or `error`; default `info`.
 
 `GET /health` is unauthenticated and contains no account data. The three
